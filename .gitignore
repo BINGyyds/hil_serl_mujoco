@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+output/
+wandb/
+demo_data/
+classifier_ckpt/
+checkpoints/
+videos/
+.idea/
+.vscode/
