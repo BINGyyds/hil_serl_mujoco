@@ -49,7 +49,11 @@ def main() -> None:
         # 这是整个项目配置的唯一来源
         config = ProjectConfig(
             USE_VIEWER=not args.no_viewer,
-            INITIAL_QPOS=tuple(args.initial_qpos) if args.initial_qpos is not None else None,
+            INITIAL_QPOS=(
+                tuple(args.initial_qpos)
+                if args.initial_qpos is not None
+                else ProjectConfig.INITIAL_QPOS
+            ),
         )
         
         # 3. 创建控制器实例并传入配置对象

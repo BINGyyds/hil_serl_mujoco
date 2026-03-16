@@ -1,15 +1,16 @@
 # robot_controller.py
 
-import numpy as np
 import logging
-import time
+from typing import List
+
+import numpy as np
+
+from async_writer import AsyncVideoWriter
 from config import ProjectConfig
+from data_manager import DataManager
 from mujoco_interface import MujocoInterface
 from robot_model import RobotModel
 from trajectory_planner import TrajectoryPlanner
-from data_manager import DataManager
-from async_writer import AsyncVideoWriter
-from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,19 @@ class RobotController:
         logger.info("正在初始化机器人控制器...")
         self.config = config
         self.mujoco_interface = MujocoInterface(config)
-        self.robot_model = RobotModel(config.NORMAL_URDF_PATH, config.END_EFFECTOR_SITE_NAME)
-        self.trajectory_planner = TrajectoryPlanner(config.TRAJECTORY_PATH, config.SIMULATION_DURATION, config.TIMESTEP)
+        self.robot_model = RobotModel(
+            urdf_path=config.NORMAL_URDF_PATH,
+            end_effector_frame_name=config.PINOCCHIO_END_EFFECTOR_FRAME_NAME,
+            urdf_xacro_path=config.URDF_XACRO_PATH,
+            xacro_mappings=config.URDF_XACRO_MAPPINGS,
+            description_package_root=config.franka_description_root,
+        )
+        self.trajectory_planner = TrajectoryPlanner(
+            filepath=config.TRAJECTORY_PATH,
+            duration=config.SIMULATION_DURATION,
+            timestep=config.TIMESTEP,
+            default_qpos=np.array(config.INITIAL_QPOS),
+        )
         self.data_manager = DataManager()
         
         # --- 内部状态变量 ---
