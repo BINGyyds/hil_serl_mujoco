@@ -96,6 +96,7 @@
   <worldbody>
     <light name="top" pos="0 0 2" mode="trackcom"/>
     <body name="link0" childclass="panda">
+      <site name="panda_base_site" pos="0 0 0"/>
       <inertial mass="0.629769" pos="-0.041018 -0.00014 0.049974"
         fullinertia="0.00315 0.00388 0.004285 8.2904e-7 0.00015 8.2299e-6"/>
       <geom mesh="link0_0" material="off_white" class="panda/visual"/>
@@ -186,6 +187,7 @@
                     <geom mesh="link7_7" material="white" class="panda/visual"/>
                     <geom mesh="link7_c" class="panda/collision"/>
                     <body name="attachment" pos="0 0 0.107" quat="0.3826834 0 0 0.9238795">
+                      <site name="panda_link8_tcp"/>
                       <site name="attachment_site"/>
                     </body>
                   </body>
