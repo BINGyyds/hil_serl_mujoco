@@ -32,13 +32,7 @@ def main() -> None:
         action='store_true',
         help='禁用实时可视化界面，以无头模式运行仿真。'
     )
-    parser.add_argument(
-        '--initial_qpos', 
-        type=float, 
-        nargs='+',  # 允许多个值
-        default=None, # 默认为None，这样可以区分用户是否输入
-        help='设置机械臂的初始关节角度（7个值，单位：弧度），例如: --initial_qpos 0.0 0.1 -0.2 ...'
-    )
+
     # 解析传入的命令行参数
     args = parser.parse_args()
 
@@ -49,11 +43,6 @@ def main() -> None:
         # 这是整个项目配置的唯一来源
         config = ProjectConfig(
             USE_VIEWER=not args.no_viewer,
-            INITIAL_QPOS=(
-                tuple(args.initial_qpos)
-                if args.initial_qpos is not None
-                else ProjectConfig.INITIAL_QPOS
-            ),
         )
         
         # 3. 创建控制器实例并传入配置对象

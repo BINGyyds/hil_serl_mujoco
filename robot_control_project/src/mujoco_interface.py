@@ -60,13 +60,6 @@ class MujocoInterface:
             config.MUJOCO_END_EFFECTOR_SITE_NAME
         ).id
 
-        self.gripper_actuator_id = (
-            self.model.actuator(config.MUJOCO_GRIPPER_ACTUATOR_NAME).id
-            if config.MUJOCO_GRIPPER_ACTUATOR_NAME
-            else None
-        )
-        self.gripper_ctrl = config.MUJOCO_GRIPPER_OPEN_CTRL
-
     def set_initial_joint_angles(self, initial_qpos: np.ndarray) -> None:
         """为 Panda 7 个关节设置初始姿态，并同步位置控制目标。"""
         if len(initial_qpos) != len(self.arm_qpos_addrs):
@@ -79,8 +72,6 @@ class MujocoInterface:
 
         self.data.qpos[self.arm_qpos_addrs] = initial_qpos
         self.data.ctrl[self.arm_actuator_ids] = initial_qpos
-        if self.gripper_actuator_id is not None:
-            self.data.ctrl[self.gripper_actuator_id] = self.gripper_ctrl
         mujoco.mj_forward(self.model, self.data)
         logger.info("机械臂初始位置已设置为: %s", initial_qpos)
 
@@ -92,39 +83,9 @@ class MujocoInterface:
         """读取机械臂当前关节速度。"""
         return self.data.qvel[self.arm_dof_addrs].copy()
 
-    def get_base_pose(self) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        """获取 Panda 基座 site 的全局位姿。"""
-        if self.base_site_id is None:
-            return None
-
-        base_pos = self.data.site_xpos[self.base_site_id]
-        base_xmat = self.data.site_xmat[self.base_site_id].reshape(3, 3)
-        base_quat = np.zeros(4)
-        mujoco.mju_mat2Quat(base_quat, base_xmat.flatten())
-        return base_pos.copy(), base_quat.copy()
-
     def get_joint_torques(self) -> np.ndarray:
         """读取 Panda 7 个关节执行器当前输出。"""
         return self.data.actuator_force[self.arm_actuator_ids].copy()
-
-    def set_actuator_gains_inverted(self, inverted: bool) -> None:
-        """
-        根据倒置状态切换位置执行器增益。
-
-        Panda MJCF 使用 general actuator，需同时更新 gainprm 与 biasprm。
-        """
-        original_kp = np.array(self.config.POS_KP_GAINS)
-        original_kv = np.array(self.config.POS_KV_GAINS)
-
-        new_kp = original_kp[::-1] if inverted else original_kp
-        new_kv = original_kv[::-1] if inverted else original_kv
-        mode = "倒置" if inverted else "正常"
-        logger.info("MuJoCo 执行器增益已切换到 -> %s 模式。", mode)
-
-        for index, actuator_id in enumerate(self.arm_actuator_ids):
-            self.model.actuator_gainprm[actuator_id, 0] = new_kp[index]
-            self.model.actuator_biasprm[actuator_id, 1] = -new_kp[index]
-            self.model.actuator_biasprm[actuator_id, 2] = -new_kv[index]
 
     def get_end_effector_position(self) -> np.ndarray:
         """获取末端执行器 site 的当前世界坐标。"""
@@ -132,26 +93,7 @@ class MujocoInterface:
 
     def set_control(self, ctrl: np.ndarray) -> None:
         """设置 Panda 7 个关节的控制目标。"""
-        control = np.asarray(ctrl, dtype=np.float64)
-        if control.shape != (len(self.arm_actuator_ids),):
-            raise ValueError(
-                f"控制输入维度错误，期望 {(len(self.arm_actuator_ids),)}，实际 {control.shape}"
-            )
-
-        self.data.ctrl[self.arm_actuator_ids] = control
-        if self.gripper_actuator_id is not None:
-            self.data.ctrl[self.gripper_actuator_id] = self.gripper_ctrl
-
-    def set_gripper_control(self, close: bool) -> None:
-        """设置 Panda 手爪开合目标。"""
-        if self.gripper_actuator_id is None:
-            return
-        self.gripper_ctrl = (
-            self.config.MUJOCO_GRIPPER_CLOSE_CTRL
-            if close
-            else self.config.MUJOCO_GRIPPER_OPEN_CTRL
-        )
-        self.data.ctrl[self.gripper_actuator_id] = self.gripper_ctrl
+        self.data.ctrl[:] = ctrl
 
     def step(self) -> None:
         """执行一步物理仿真。"""
@@ -173,11 +115,26 @@ class MujocoInterface:
             self.viewer.close()
             self.viewer = None
 
-    def setup_renderer(self, width: int = 1280, height: int = 720) -> None:
-        """初始化离线渲染器。"""
+    def setup_renderer(self, width: int = 1280, height: int = 720) -> mujoco.Renderer:
+        """初始化离线渲染器，并返回可用的 renderer 实例。"""
         if self.renderer is None:
-            self.renderer = mujoco.Renderer(self.model, height, width)
-            logger.info("离线渲染器已初始化，分辨率: %sx%s", width, height)
+            max_width = int(self.model.vis.global_.offwidth)
+            max_height = int(self.model.vis.global_.offheight)
+            render_width = min(width, max_width)
+            render_height = min(height, max_height)
+            if (render_width, render_height) != (width, height):
+                logger.warning(
+                    "请求的离屏渲染分辨率 %sx%s 超出 MJCF framebuffer %sx%s，已自动调整为 %sx%s。",
+                    width,
+                    height,
+                    max_width,
+                    max_height,
+                    render_width,
+                    render_height,
+                )
+            self.renderer = mujoco.Renderer(self.model, render_height, render_width)
+            logger.info("离线渲染器已初始化，分辨率: %sx%s", render_width, render_height)
+        return self.renderer
 
     def set_camera_view(
         self,
@@ -195,17 +152,13 @@ class MujocoInterface:
 
     def render_frame(self, camera: Union[str, mujoco.MjvCamera]) -> np.ndarray:
         """从指定相机渲染一帧 RGB 图像。"""
-        if self.renderer is None:
-            self.setup_renderer()
-
-        self.renderer.update_scene(self.data, camera=camera)
-        return self.renderer.render()
+        renderer = self.setup_renderer()
+        renderer.update_scene(self.data, camera=camera)
+        return renderer.render()
 
     def render_all_custom_frames(self, camera_names: Tuple[str, ...]) -> Dict[str, np.ndarray]:
         """从多个命名相机渲染图像。"""
         frames: Dict[str, np.ndarray] = {}
-        if self.renderer is None:
-            self.setup_renderer()
 
         for cam_name in camera_names:
             try:

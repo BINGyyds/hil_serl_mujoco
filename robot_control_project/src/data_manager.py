@@ -20,29 +20,22 @@ class DataManager:
     def __init__(self) -> None:
         """初始化数据管理器，创建用于存储时序数据的空列表。"""
         self.timestamps: List[float] = []
-        self.base_positions: List[np.ndarray] = []
-        self.base_orientations: List[np.ndarray] = [] # 存储为欧拉角 (Roll, Pitch, Yaw)
         self.joint_angles: List[np.ndarray] = []
         self.joint_torques: List[np.ndarray] = []
         self.end_effector_poses: List[np.ndarray] = []
         logger.info("数据管理器已初始化。")
 
-    def record_data(self, time: float, base_pos: np.ndarray, base_quat: np.ndarray, 
-                    q: np.ndarray, torques: np.ndarray, ee_pos: np.ndarray) -> None:
+    def record_data(self, time: float, q: np.ndarray, torques: np.ndarray, ee_pos: np.ndarray) -> None:
         """
         记录一个仿真时间点上的所有关键物理量。
 
         Args:
             time (float): 当前时间戳。
-            base_pos (np.ndarray): 基座的位置 (x, y, z)。
-            base_quat (np.ndarray): 基座的姿态四元数 (w, x, y, z)。
             q (np.ndarray): 7个关节的角度。
             torques (np.ndarray): 7个关节的力矩。
             ee_pos (np.ndarray): 末端执行器的位置 (x, y, z)。
         """
         self.timestamps.append(time)
-        self.base_positions.append(base_pos.copy())
-        self.base_orientations.append(self._quat_to_euler(base_quat))
         self.joint_angles.append(q.copy())
         self.joint_torques.append(torques.copy())
         self.end_effector_poses.append(ee_pos.copy())
@@ -72,53 +65,18 @@ class DataManager:
         yaw_z = np.arctan2(t3, t4)
         return np.array([roll_x, pitch_y, yaw_z])
 
-    def save_data(self, base_path: Path, robot_path: Path) -> None:
+    def save_data(self, robot_path: Path) -> None:
         """
         将所有收集到的数据分别保存到基座和机器人的CSV文件中。
-
-        Args:
-            base_path (Path): 基座数据的CSV文件输出路径。
-            robot_path (Path): 机器人数据的CSV文件输出路径。
         """
         if not self.timestamps:
             logger.warning("数据缓冲区为空，没有数据可供保存。")
             return
 
         try:
-            self._save_base_data_to_csv(base_path)
             self._save_robot_data_to_csv(robot_path)
         except Exception as e:
             logger.exception(f"保存数据到CSV文件时发生错误: {e}")
-
-    def _save_base_data_to_csv(self, file_path: Path):
-        """保存基座相关数据到指定的CSV文件。"""
-        logger.info(f"正在将基座数据保存到CSV文件: {file_path}")
-        
-        # 1. 定义表头和单位
-        headers = ['Time', 'Base_Pos_X', 'Base_Pos_Y', 'Base_Pos_Z', 
-                   'Base_Orn_Roll', 'Base_Orn_Pitch', 'Base_Orn_Yaw']
-        units = ['s', 'm', 'm', 'm', 'rad', 'rad', 'rad']
-
-        # 2. 准备数据
-        data_to_save = np.hstack([
-            np.array(self.timestamps)[:, np.newaxis],
-            np.vstack(self.base_positions),
-            np.vstack(self.base_orientations)
-        ])
-
-        # 3. 写入文件（两步法：先写单位，再追加数据）
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # 步骤一: 写入表头和单位行
-        df_units = pd.DataFrame([units], columns=headers)
-        df_units.to_csv(file_path, index=False, encoding='utf-8')
-        
-        # 步骤二: 以追加模式写入实际数据，不带表头
-        df_data = pd.DataFrame(data=data_to_save, columns=headers)
-        df_data.to_csv(file_path, mode='a', header=False, index=False, 
-                       float_format='%.8f', encoding='utf-8')
-
-        logger.info(f"基座数据已成功保存到 {file_path}")
 
     def _save_robot_data_to_csv(self, file_path: Path):
         """保存机器人关节和末端相关数据到指定的CSV文件。"""
@@ -173,7 +131,7 @@ class DataManager:
         logger.info("正在绘制仿真数据图表...")
         num_joints = len(self.joint_angles[0])
 
-        fig, axes = plt.subplots(4, 1, figsize=(12, 16), sharex=True)
+        fig, axes = plt.subplots(3, 1, figsize=(9, 12), sharex=True)
         fig.suptitle("Simulation Results", fontsize=16)
 
         # 绘制关节角度
@@ -201,15 +159,5 @@ class DataManager:
         axes[2].legend()
         axes[2].grid(True)
 
-        # 绘制基座位置
-        axes[3].set_title("Base Position")
-        base_pos_arr = np.array(self.base_positions)
-        for i, axis in enumerate(['X', 'Y', 'Z']):
-            axes[3].plot(self.timestamps, base_pos_arr[:, i], label=axis)
-        axes[3].set_xlabel("Time (s)")
-        axes[3].set_ylabel("Position (m)")
-        axes[3].legend()
-        axes[3].grid(True)
-
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        # plt.tight_layout(rect=[0, 0, 1, 0.96])
         plt.show()

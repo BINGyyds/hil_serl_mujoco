@@ -31,27 +31,16 @@ class RobotController:
         logger.info("正在初始化机器人控制器...")
         self.config = config
         self.mujoco_interface = MujocoInterface(config)
-        self.robot_model = RobotModel(
-            urdf_path=config.NORMAL_URDF_PATH,
-            end_effector_frame_name=config.PINOCCHIO_END_EFFECTOR_FRAME_NAME,
-            urdf_xacro_path=config.URDF_XACRO_PATH,
-            xacro_mappings=config.URDF_XACRO_MAPPINGS,
-            description_package_root=config.franka_description_root,
-        )
-        self.trajectory_planner = TrajectoryPlanner(
-            filepath=config.TRAJECTORY_PATH,
-            duration=config.SIMULATION_DURATION,
-            timestep=config.TIMESTEP,
-            default_qpos=np.array(config.INITIAL_QPOS),
-        )
+        self.robot_model = RobotModel(mjcf_path=config.MJCF_PATH, end_effector_frame_name=config.MUJOCO_END_EFFECTOR_SITE_NAME)
+        self.trajectory_planner = TrajectoryPlanner()
         self.data_manager = DataManager()
         
         # --- 内部状态变量 ---
         self.video_writers: List[AsyncVideoWriter] = []
 
         # --- 控制器增益 ---
-        self.TORQUE_KP = np.diag(config.TORQUE_KP_GAINS)
-        self.TORQUE_KD = np.diag(config.TORQUE_KD_GAINS)
+        self.EFFORT_KP = np.diag(config.EFFORT_KP_GAINS)
+        self.EFFORT_KD = np.diag(config.EFFORT_KD_GAINS)
 
     def run_simulation(self) -> None:
         """
@@ -83,8 +72,8 @@ class RobotController:
         """
         logger.info("正在准备仿真环境...")
         # 1. 初始化离线渲染器以确定帧尺寸
-        self.mujoco_interface.setup_renderer(width=1280, height=720)
-        frame_size = (self.mujoco_interface.renderer.width, self.mujoco_interface.renderer.height)
+        renderer = self.mujoco_interface.setup_renderer(width=1280, height=720)
+        frame_size = (renderer.width, renderer.height)
         
         # 2. 根据配置创建并启动所有异步视频写入器
         self.video_writers = []
@@ -105,13 +94,13 @@ class RobotController:
             azimuth=72.91, elevation=-49.89, distance=16.26, lookat=np.array([-0.22, 0.08, 1.66])
         )
 
-        # 5. 启动被动查看器（如果需要）
-        if self.config.USE_VIEWER: 
-            self.mujoco_interface.launch_viewer()
-
-        # 6. 设置机械臂初始关节角度
+        # 5. 在启动 viewer 前先写入初始状态，避免可视化先显示零位再跳到 home。
         if self.config.INITIAL_QPOS is not None:
             self.mujoco_interface.set_initial_joint_angles(np.array(self.config.INITIAL_QPOS))
+
+        # 6. 启动被动查看器（如果需要）
+        if self.config.USE_VIEWER: 
+            self.mujoco_interface.launch_viewer()
 
     def _cleanup_simulation(self):
         """
@@ -129,9 +118,8 @@ class RobotController:
             self.mujoco_interface.close_viewer()
 
         # 3. 保存记录的数据到CSV
-        if self.config.BASE_DATA_PATH and self.config.ROBOT_DATA_PATH:
+        if self.config.ROBOT_DATA_PATH:
             self.data_manager.save_data(
-                base_path=self.config.BASE_DATA_PATH, 
                 robot_path=self.config.ROBOT_DATA_PATH
             )
             
@@ -152,13 +140,12 @@ class RobotController:
         """在仿真循环中处理数据的采样和记录。"""
         if current_sim_time >= self.next_log_time:
             # 获取所有需要记录的数据
-            base_pos, base_quat = self.mujoco_interface.get_base_pose() or (np.zeros(3), np.array([1.0, 0, 0, 0]))
             current_q = self.mujoco_interface.get_arm_joint_angles()
             torques = self.mujoco_interface.get_joint_torques()
             ee_pos_mujoco = self.mujoco_interface.get_end_effector_position()
             
             # 将数据传递给数据管理器
-            self.data_manager.record_data(self.next_log_time, base_pos, base_quat, current_q, torques, ee_pos_mujoco)
+            self.data_manager.record_data(self.next_log_time, current_q, torques, ee_pos_mujoco)
             
             self.next_log_time += self.config.DATA_LOGGING_INTERVAL
 
@@ -169,7 +156,7 @@ class RobotController:
         current_v = self.mujoco_interface.get_arm_joint_velocities()
         
         # 2. 从轨迹规划器获取当前时刻的目标状态
-        target_q, target_v, target_a = self.trajectory_planner.get_target_qva(current_sim_time)
+        target_q, target_v, target_a = self.trajectory_planner.plan_trajectory(current_sim_time, self.config.SIMULATION_DURATION)
         
         self._apply_control(current_q, current_v, target_q, target_v, target_a)
         
@@ -181,35 +168,39 @@ class RobotController:
         根据当前控制模式计算并应用控制指令到仿真器。
         
         Args:
-            current_q: 当前关节角度（可能已根据攀爬状态反转）。
-            current_v: 当前关节速度（可能已根据攀爬状态反转）。
-            target_data: 包含目标q, v, a的字典。
+            current_q: 当前关节角度。
+            current_v: 当前关节速度。
+            target_q: 目标关节角度。
+            target_v: 目标关节速度。
+            target_a: 目标关节加速度。
         """
 
         if self.config.CONTROL_MODE == 'position':
             # 在位置模式下，直接将目标关节角度作为控制信号。
             control_signal = target_q
-        elif self.config.CONTROL_MODE == 'torque':
+        elif self.config.CONTROL_MODE == 'effort':
             # 在力矩模式下，使用前馈+反馈（PD）控制律。
             # 1. 动力学前馈 (Inverse Dynamics)
             tau_ff = self.robot_model.inverse_dynamics(current_q, current_v, target_a)
             # 2. PD反馈
             q_error = target_q - current_q
             v_error = target_v - current_v
-            tau_fb = self.TORQUE_KP @ q_error + self.TORQUE_KD @ v_error
+            tau_fb = self.EFFORT_KP @ q_error + self.EFFORT_KD @ v_error
             # 3. 总控制力矩
             control_signal = tau_ff + tau_fb
+        else:
+            raise ValueError(f"不支持的控制模式: {self.config.CONTROL_MODE}")
         
         self.mujoco_interface.set_control(control_signal)
 
-    def print_robot_info(self, ee_pos_mujoco, ee_pos_pinnochio) -> None:
+    def print_robot_info(self, ee_pos_mujoco, ee_pos_model) -> None:
         """打印机器人和仿真器的关键信息。"""
-        error_pos = ee_pos_mujoco - ee_pos_pinnochio
+        error_pos = ee_pos_mujoco - ee_pos_model
         logger.info("=" * 60)
         logger.info("机器人信息:")
         
         logger.info(f"时间步长: {self.config.TIMESTEP}s")
-        logger.info(f"末端位置（pinnochio）:{ee_pos_pinnochio}")
+        logger.info(f"末端位置（动力学模型）:{ee_pos_model}")
         logger.info(f"末端位置（mujoco）:{ee_pos_mujoco}")
         logger.info(f"误差：{error_pos}")
 
