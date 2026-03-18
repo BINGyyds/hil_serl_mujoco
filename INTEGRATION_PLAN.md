@@ -18,28 +18,24 @@
 ## 二、整体架构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        统一仓库结构                              │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  hil-serl/                    (RL 算法库 — 基本不改动)           │
-│  ├── serl_launcher/           SAC Agent, 网络, 数据管理          │
-│  └── serl_robot_infra/        真机接口 (后续 sim2real 复用)       │
-│                                                                 │
-│  robot_control_project/       (仿真基础设施 — 少量改动)           │
-│  ├── model/franka_panda/      MJCF 模型、mesh 资源               │
-│  └── src/                     MuJoCo 接口、动力学模型             │
-│                                                                 │
-│  mujoco_sim/                  ★ 新建：集成层 ★                   │
-│  ├── envs/                    Gymnasium 环境                     │
-│  │   ├── franka_mujoco_env.py   基础 MuJoCo Franka 环境          │
-│  │   └── franka_reach_env.py    Reach 任务环境                   │
-│  ├── config/                  配置文件                           │
-│  │   └── reach_config.py        Reach 任务配置                   │
-│  └── scripts/                 训练 / 评估脚本                    │
-│      └── train_sac_reach.py     SAC 训练入口                     │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       统一项目目录结构                             │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  configs/              训练配置                                   │
+│  envs/                 Gymnasium 环境 (MuJoCo 仿真)              │
+│  models/               MJCF 模型、mesh 资源                      │
+│  │  └── franka_panda/  Franka Panda 模型文件                     │
+│  serl_launcher/        RL 核心库 (SAC, BC, 网络, 数据)           │
+│  franka_env/           真机接口 (Sim2Real 复用)                  │
+│  robot/                MuJoCo 仿真控制 (底层接口, 动力学)         │
+│  scripts/              训练 / 评估脚本                           │
+│  │  └── experiments/   hil-serl 实验配置                         │
+│  output/               生成的输出 (视频, 数据)                    │
+│  trajectory/           预计算轨迹数据                             │
+│  docs/                 文档                                      │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
