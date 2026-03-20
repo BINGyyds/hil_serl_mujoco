@@ -1,5 +1,7 @@
 # !/usr/bin/env python3
 
+from functools import partial
+
 import jax
 from jax import nn
 import jax.numpy as jnp
@@ -12,6 +14,9 @@ from serl_launcher.agents.continuous.bc import BCAgent
 from serl_launcher.agents.continuous.sac import SACAgent
 from serl_launcher.agents.continuous.sac_hybrid_single import SACAgentHybridSingleArm
 from serl_launcher.agents.continuous.sac_hybrid_dual import SACAgentHybridDualArm
+from serl_launcher.networks.actor_critic_nets import Critic, Policy, ensemblize
+from serl_launcher.networks.lagrange import GeqLagrangeMultiplier
+from serl_launcher.networks.mlp import MLP
 from serl_launcher.vision.data_augmentations import batched_random_crop
 
 ##############################################################################
@@ -45,6 +50,69 @@ def make_bc_agent(
         image_keys=image_keys,
         augmentation_function=make_batch_augmentation_func(image_keys),
     )
+
+
+def make_sac_state_agent(
+    seed,
+    sample_obs,
+    sample_action,
+    hidden_dims=(256, 256),
+    discount=0.99,
+    soft_target_update_rate=0.005,
+    temperature_init=1e-2,
+    target_entropy=None,
+    critic_ensemble_size=2,
+    backup_entropy=False,
+):
+    """Create a state-based SAC agent (MLP only, no image encoder)."""
+    network_kwargs = {
+        "hidden_dims": list(hidden_dims),
+        "activations": nn.tanh,
+        "use_layer_norm": True,
+        "activate_final": True,
+    }
+
+    critic_backbone = partial(MLP, **network_kwargs)
+    critic_backbone = ensemblize(critic_backbone, critic_ensemble_size)(
+        name="critic_ensemble"
+    )
+    critic_def = partial(Critic, encoder=None, network=critic_backbone)(
+        name="critic"
+    )
+
+    action_dim = sample_action.shape[-1]
+    policy_def = Policy(
+        encoder=None,
+        network=MLP(**network_kwargs),
+        action_dim=action_dim,
+        tanh_squash_distribution=True,
+        std_parameterization="exp",
+        std_min=1e-5,
+        std_max=5,
+        name="actor",
+    )
+
+    temperature_def = GeqLagrangeMultiplier(
+        init_value=temperature_init,
+        constraint_shape=(),
+        name="temperature",
+    )
+
+    agent = SACAgent.create(
+        rng=jax.random.PRNGKey(seed),
+        observations=sample_obs,
+        actions=sample_action,
+        actor_def=policy_def,
+        critic_def=critic_def,
+        temperature_def=temperature_def,
+        discount=discount,
+        soft_target_update_rate=soft_target_update_rate,
+        target_entropy=target_entropy,
+        backup_entropy=backup_entropy,
+        critic_ensemble_size=critic_ensemble_size,
+        critic_subsample_size=None,
+    )
+    return agent
 
 
 def make_sac_pixel_agent(

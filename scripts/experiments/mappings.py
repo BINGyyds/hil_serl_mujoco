@@ -3,6 +3,7 @@ from scripts.experiments.usb_pickup_insertion.config import TrainConfig as USBPi
 from scripts.experiments.object_handover.config import TrainConfig as ObjectHandoverTrainConfig
 from scripts.experiments.egg_flip.config import TrainConfig as EggFlipTrainConfig
 from scripts.experiments.concave_insertion.config import TrainConfig as ConcaveInsertionTrainConfig
+from scripts.experiments.mujoco_reach.config import TrainConfig as MujocoReachTrainConfig
 
 CONFIG_MAPPING = {
                 "ram_insertion": RAMInsertionTrainConfig,
@@ -10,4 +11,5 @@ CONFIG_MAPPING = {
                 "object_handover": ObjectHandoverTrainConfig,
                 "egg_flip": EggFlipTrainConfig,
                 "concave_insertion": ConcaveInsertionTrainConfig,
+                "mujoco_reach": MujocoReachTrainConfig,
                }
