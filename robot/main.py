@@ -1,7 +1,13 @@
-# main.py
-
-import logging
 import argparse
+import logging
+import sys
+from pathlib import Path
+
+# Allow direct script execution via `python robot/main.py`; the standard entry
+# point remains `python -m robot.main`.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from robot.config import ProjectConfig
 from robot.robot_controller import RobotController
 
