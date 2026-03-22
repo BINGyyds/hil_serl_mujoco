@@ -11,12 +11,9 @@ setup(
         "mujoco>=3.0.0",
         "numpy>=1.24.3",
         "scipy>=1.11.0",
-        "easyhid",
-        "zmq",
         "typing_extensions",
         "opencv-python",
         "lz4",
-        "agentlace@git+https://github.com/youliangtan/agentlace.git@cf2c337c5e3694cdbfc14831b239bd657bc4894d",
     ],
     extras_require={
         "train": [
@@ -34,6 +31,11 @@ setup(
         ],
         "sb3": [
             "stable-baselines3",
+        ],
+        "hil": [
+            "zmq",
+            "easyhid",
+            "agentlace@git+https://github.com/youliangtan/agentlace.git@cf2c337c5e3694cdbfc14831b239bd657bc4894d",
         ],
     },
     python_requires=">=3.9",

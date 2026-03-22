@@ -92,10 +92,23 @@ pip install \
     imageio \
     opencv-python
 
-# ----------------------------- 6. 安装项目本体 + agentlace --------------------
-info "安装项目 (含 agentlace 通信库) ..."
+# ----------------------------- 6. 安装项目本体 --------------------------------
+info "安装项目 ..."
 pip install -e "$PROJECT_DIR" --config-settings editable_mode=compat 2>/dev/null \
     || pip install -e "$PROJECT_DIR"
+
+# ----------------------------- 6.1 安装 agentlace (HIL 通信, 可选) ------------
+# agentlace 只在 actor-learner 分布式训练时需要
+# 如果你只做本地 MuJoCo 仿真训练 (SB3/单进程)，可以跳过
+info "安装 agentlace (HIL 分布式通信) ..."
+if pip install "agentlace@git+https://github.com/youliangtan/agentlace.git@cf2c337c5e3694cdbfc14831b239bd657bc4894d" 2>/dev/null; then
+    info "agentlace 安装成功"
+else
+    warn "agentlace 安装失败 (网络问题)，跳过。"
+    warn "这不影响 MuJoCo 本地仿真训练 (SB3/单进程 SAC)。"
+    warn "如需 actor-learner 分布式训练，请稍后手动安装:"
+    warn "  pip install agentlace@git+https://github.com/youliangtan/agentlace.git@cf2c337c5e3694cdbfc14831b239bd657bc4894d"
+fi
 
 # ----------------------------- 7. 验证安装 ------------------------------------
 info "=========================================="
