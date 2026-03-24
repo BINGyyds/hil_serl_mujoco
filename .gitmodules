@@ -1,0 +1,6 @@
+[submodule "sim"]
+	path = sim
+	url = git@github.com:BINGyyds/hil_serl_mujoco_sim.git
+[submodule "train"]
+	path = train
+	url = git@github.com:BINGyyds/hil_serl_mujoco_train.git
