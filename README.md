@@ -24,15 +24,9 @@ hil_serl_mujoco/
 - `train/`
   - `serl_launcher`、`train_rlpd_mujoco.py`、actor / learner、buffer、checkpoint
 
-当前目录已经是未来 `submodule-ready` 的形态：
-
-- 本地目录名：`sim/`、`train/`
-- 未来远端仓库名建议：`hil_serl_mujoco_sim`、`hil_serl_mujoco_train`
-- 当前 Python 包名仍然分别是 `robot_controllers_mujoco` 和 `hil_serl_train`
-
 ## 当前主线
 
-当前不再以 `reach` 任务作为主线，默认任务改为：
+当前主线任务为：
 
 - `MuJoCo insertion`
 - `state-based HIL-RLPD`
@@ -106,6 +100,13 @@ python -c "from robot_controllers_mujoco.configs.insertion_config import make_in
 ```bash
 cd /home/lrb/Workspace/hil_serl_mujoco/train
 ./setup_env_actor_mac.sh
+```
+
+如果本地 actor 机器是 Ubuntu：
+
+```bash
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+./setup_env_actor_ubuntu.sh
 ```
 
 安装完成后：
@@ -332,20 +333,4 @@ python scripts/train_rlpd_mujoco.py \
   --actor \
   --ip localhost \
   --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local_actor
-```
-
-## GitHub 拆仓与 submodule 计划
-
-如果你后面要把父仓拆成真正的多仓结构，推荐顺序：
-
-1. 先把 `sim/` 推成 `hil_serl_mujoco_sim`
-2. 再把 `train/` 推成 `hil_serl_mujoco_train`
-3. 最后回到父仓，把这两个目录替换成真实 submodule
-
-示意结构：
-
-```text
-hil_serl_mujoco                 # 父仓
-├── sim/                        # submodule -> hil_serl_mujoco_sim
-└── train/                      # submodule -> hil_serl_mujoco_train
 ```
