@@ -1,162 +1,351 @@
 # hil_serl_mujoco
 
-`hil_serl_mujoco` 现在作为父仓使用，负责保留总说明和两个子仓的关系定义。当前工作区已经按未来 GitHub submodule 的形态拆成了两个目录：
+当前主线已经收敛为一条明确流程：
 
-- `sim/` 对应远端子仓 `hil_serl_mujoco_sim`
-- `train/` 对应远端子仓 `hil_serl_mujoco_train`
+1. 本地 `sim/` 跑 MuJoCo、`panda_nohand_velocity.xml`、SpaceMouse 和 demo 录制
+2. 先录一小批 insertion demos，作为 learner 的初始 `demo_buffer`
+3. 远端 `train/` 跑 learner
+4. 本地 `train/` 跑 actor，连接远端 learner
+5. 在线训练时继续用 SpaceMouse 做 intervention
 
-当前目录已经是 `submodule-ready` 布局，但还没有真正写入 `.gitmodules`。推荐流程是：
+这份 README 现在是父仓唯一保留的顶层集成文档。旧的 `INTEGRATION_PLAN.md` 和 `MUJOCO_INSERTION_DEPLOYMENT.md` 已收敛到这里。
 
-1. 先把 `sim/` 单独推成 `hil_serl_mujoco_sim`
-2. 再把 `train/` 单独推成 `hil_serl_mujoco_train`
-3. 最后回到父仓，把这两个目录替换成真实 submodule
-
-说明：
-
-- `sim/`、`train/` 是父仓里的本地挂载目录名
-- `hil_serl_mujoco_sim`、`hil_serl_mujoco_train` 是 GitHub 远端仓库名
-- 当前代码里的 Python 包名暂时仍然分别是 `robot_controllers_mujoco` 和 `hil_serl_train`
-
-## 仓库职责
-
-### `sim/`
-- 本地 MuJoCo 仿真环境
-- Franka Panda MJCF/mesh 资产
-- SpaceMouse 接入
-- Demo 录制与本地控制调试
-
-### `train/`
-- `serl_launcher`
-- MuJoCo Reach 主线训练脚本
-- actor / learner 分布式训练入口
-- 本地 actor 与 AutoDL learner 的安装脚本
-
-## 当前主线
-
-当前默认主线是：
-
-1. 本地 `MacBook M5` 跑 MuJoCo 仿真和 actor
-2. 远程 `AutoDL` 租用 `RTX 4090 / 24GB` 或 `RTX 5090 / 32GB` 跑 learner
-3. 任务主线先聚焦 `Franka Reach + state-based RL`
-
-对当前这条主线，`4090` 已经足够。`5090` 更适合后续视觉策略、更大 batch 或更重的实验并发。
-
-## 目录概览
+## 仓库结构
 
 ```text
 hil_serl_mujoco/
 ├── README.md
-├── INTEGRATION_PLAN.md
 ├── sim/
-│   ├── README.md
-│   ├── pyproject.toml
-│   ├── setup_env_mac.sh
-│   ├── scripts/
-│   └── robot_controllers_mujoco/
-├── train/
-│   ├── README.md
-│   ├── pyproject.toml
-│   ├── setup_env_actor_mac.sh
-│   ├── setup_env_autodl.sh
-│   ├── scripts/
-│   └── serl_launcher/
+└── train/
 ```
 
-## 快速开始
+- `sim/`
+  - 本地 MuJoCo 仿真、Franka Panda MJCF、SpaceMouse、demo 录制、本地控制调试
+- `train/`
+  - `serl_launcher`、`train_rlpd_mujoco.py`、actor / learner、buffer、checkpoint
 
-### 1. 本地仿真
+当前目录已经是未来 `submodule-ready` 的形态：
+
+- 本地目录名：`sim/`、`train/`
+- 未来远端仓库名建议：`hil_serl_mujoco_sim`、`hil_serl_mujoco_train`
+- 当前 Python 包名仍然分别是 `robot_controllers_mujoco` 和 `hil_serl_train`
+
+## 当前主线
+
+当前不再以 `reach` 任务作为主线，默认任务改为：
+
+- `MuJoCo insertion`
+- `state-based HIL-RLPD`
+- 本地 actor + 远端 learner
+
+需要固定的一条约束是：
+
+- 现在以及后续所有涉及 SpaceMouse 控制的 MuJoCo 场景，都以 `panda_nohand_velocity.xml` 为基准
+
+## 运行拓扑
+
+推荐拓扑：
+
+- 本地机器
+  - `sim/`
+  - `train/`
+  - SpaceMouse
+  - MuJoCo viewer
+  - 运行 `actor`
+- 远端服务器
+  - `sim/`
+  - `train/`
+  - GPU
+  - 运行 `learner`
+
+当前通信端口来自 [`launcher.py`](/home/lrb/Workspace/hil_serl_mujoco/train/serl_launcher/utils/launcher.py#L301)：
+
+- trainer port: `5588`
+- broadcast port: `5589`
+
+推荐网络方式：
+
+- 首选：Tailscale / Zerotier / 内网 VPN
+- 备选：可直连的公网 IP
+- 不建议额外改代码做新 RPC
+
+## 本地机器准备
+
+本地机器建议准备两个 Conda 环境：
+
+- `sim_env`
+  - 跑 MuJoCo 仿真
+  - 录 demos
+  - 调试 `robot_controller`
+- `hil_serl_actor`
+  - 跑 `train/scripts/train_rlpd_mujoco.py --actor`
+
+### 1. 安装 sim 环境
 
 ```bash
-cd sim
-bash setup_env_mac.sh
-conda activate robot_controllers_mujoco
-python scripts/record_demos_mujoco.py --output demo_data/reach_demos.pkl
+cd /home/lrb/Workspace/hil_serl_mujoco/sim
+./setup_env_mac.sh
 ```
 
-### 2. 本地 actor
+或 Ubuntu：
 
 ```bash
-cd train
-bash setup_env_actor_mac.sh
+cd /home/lrb/Workspace/hil_serl_mujoco/sim
+./setup_env_ubuntu.sh
+```
+
+安装完成后：
+
+```bash
+conda activate sim_env
+python -c "from robot_controllers_mujoco.configs.insertion_config import make_insertion_config; from robot_controllers_mujoco.envs.franka_insertion_env import FrankaInsertionEnv; env = FrankaInsertionEnv(config=make_insertion_config()); env.reset(); env.close(); print('sim insertion env ok')"
+```
+
+### 2. 安装本地 actor 环境
+
+```bash
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+./setup_env_actor_mac.sh
+```
+
+安装完成后：
+
+```bash
 conda activate hil_serl_actor
-python scripts/train_rlpd_mujoco.py --exp_name mujoco_reach --actor --ip localhost
+python -c "import jax; print(jax.devices())"
 ```
 
-### 3. AutoDL learner
+## 远端服务器准备
+
+远端服务器也需要同时放 `sim/` 和 `train/`，因为 `train` 直接依赖 `robot_controllers_mujoco`。
+
+建议目录：
+
+```text
+/root/workspace/hil_serl_mujoco/
+├── sim/
+└── train/
+```
+
+安装远端 learner 环境：
 
 ```bash
-cd train
-bash setup_env_autodl.sh
+cd /root/workspace/hil_serl_mujoco/train
+./setup_env_autodl.sh
+```
+
+安装完成后：
+
+```bash
 conda activate hil_serl_train
-python scripts/train_rlpd_mujoco.py --exp_name mujoco_reach --learner \
-  --demo_path demo_data/reach_demos.pkl \
-  --checkpoint_path output/reach_hil
+python -c "import jax; print(jax.devices())"
 ```
 
-### 4. SSH 端口转发
+如果这里看不到 GPU，先不要启动 learner。
+
+## 网络连通性检查
+
+假设你使用 Tailscale，先拿到远端服务器 VPN IP，例如：
+
+```text
+100.101.102.103
+```
+
+本地先测试：
 
 ```bash
-ssh -L 5588:localhost:5588 -L 5589:localhost:5589 user@your-autodl-host
+ping 100.101.102.103
 ```
 
-## GitHub 建仓与关联
+如果是公网或云服务器安全组，还需要开放：
 
-### 1. 创建并推送 `sim/`
+- `5588/tcp`
+- `5589/tcp`
+
+## 先录 insertion demos
+
+这一步只在本地 `sim_env` 里完成，不需要 learner 在线。
 
 ```bash
-cd sim
-git init
-git add .
-git commit -m "Initial commit for hil_serl_mujoco_sim"
-git branch -M main
-git remote add origin git@github.com:<your-name>/hil_serl_mujoco_sim.git
-git push -u origin main
+conda activate sim_env
+cd /home/lrb/Workspace/hil_serl_mujoco/sim
+
+python scripts/record_demos_mujoco.py \
+  --output demo_data/insertion_demos.pkl \
+  --num_demos 25
 ```
 
-### 2. 创建并推送 `train/`
+按钮语义：
+
+- `SpaceMouse 6D`：控制 tool tip
+- `右键`：保存当前成功轨迹
+- `左键`：丢弃当前轨迹并 reset
+
+建议第一轮先录：
+
+- 20 到 50 条成功轨迹
+- 每条都从预对齐初始位姿开始
+- 失败轨迹不要放进初始 `demo_buffer`
+
+如果你想看录制过程：
 
 ```bash
-cd train
-git init
-git add .
-git commit -m "Initial commit for hil_serl_mujoco_train"
-git branch -M main
-git remote add origin git@github.com:<your-name>/hil_serl_mujoco_train.git
-git push -u origin main
+python scripts/record_demos_mujoco.py \
+  --output demo_data/insertion_demos.pkl \
+  --num_demos 25 \
+  --render-human \
+  --realtime
 ```
 
-### 3. 回父仓改成 submodule
+## 把 demos 传到远端
 
-先把当前目录备份到别处，然后在父仓执行：
+如果 learner 在远端，把 `pkl` 拷过去：
 
 ```bash
-cd /Users/lirongbing/Workspace/hil_serl_mujoco
-mv sim /tmp/hil_serl_mujoco_sim_backup
-mv train /tmp/hil_serl_mujoco_train_backup
-git submodule add git@github.com:<your-name>/hil_serl_mujoco_sim.git sim
-git submodule add git@github.com:<your-name>/hil_serl_mujoco_train.git train
-git add .gitmodules sim train
-git commit -m "Add sim and train as submodules"
+scp /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos.pkl \
+  user@100.101.102.103:/root/workspace/hil_serl_mujoco/train/demo_data/
 ```
 
-### 4. 更新父仓远程主仓库
-
-如果父仓还没有配置远端：
+如果远端 `demo_data/` 不存在，先创建：
 
 ```bash
-cd /Users/lirongbing/Workspace/hil_serl_mujoco
-git remote add origin git@github.com:<your-name>/hil_serl_mujoco.git
-git branch -M main
-git push -u origin main
+ssh user@100.101.102.103 "mkdir -p /root/workspace/hil_serl_mujoco/train/demo_data"
 ```
 
-如果父仓已经配置好了远端：
+## 启动远端 learner
 
 ```bash
-cd /Users/lirongbing/Workspace/hil_serl_mujoco
-git add -A
-git commit -m "Restructure repo into parent + sim/train layout"
-git push origin main
+conda activate hil_serl_train
+cd /root/workspace/hil_serl_mujoco/train
+
+mkdir -p output/mujoco_insertion
+
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --learner \
+  --demo_path /root/workspace/hil_serl_mujoco/train/demo_data/insertion_demos.pkl \
+  --checkpoint_path /root/workspace/hil_serl_mujoco/train/output/mujoco_insertion
 ```
 
-更完整版本见 [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md)
+启动后应看到类似信息：
+
+- `demo buffer size: ...`
+- `starting learner loop`
+
+## 启动本地 actor
+
+```bash
+conda activate hil_serl_actor
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --ip 100.101.102.103 \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor
+```
+
+说明：
+
+- `--ip` 写远端 learner 地址
+- 本地 actor 会打开 MuJoCo viewer
+- SpaceMouse intervention 通过 [`wrappers.py`](/home/lrb/Workspace/hil_serl_mujoco/sim/robot_controllers_mujoco/envs/wrappers.py#L15) 接入
+- learner 会把最新参数回推给 actor
+
+## 运行时数据流
+
+- `demo_buffer`
+  - learner 启动时由 `--demo_path` 预热
+  - 在线 intervention 时继续追加高质量片段
+- `replay_buffer`
+  - actor 的全量在线 rollout 数据
+
+当前主线是：
+
+1. 少量 demo 预热
+2. 在线 HIL-RLPD 持续训练
+
+不是先单独做完整 BC，再切到 RL。
+
+## 推荐操作顺序
+
+第一次完整跑通时，建议严格按这个顺序：
+
+1. 本地确认 insertion env 能 reset
+2. 本地录 `25` 条 insertion demos
+3. 把 demo `pkl` 传到远端
+4. 远端启动 learner
+5. 确认 learner 打印 `demo buffer size`
+6. 本地启动 actor，连接远端 IP
+7. 先观察几轮纯策略行为
+8. 再用 SpaceMouse 做 intervention
+
+## 常见问题
+
+### 1. learner 启动了，但 actor 连不上
+
+先排查：
+
+- 远端 IP 是否正确
+- `5588/5589` 是否开放
+- Tailscale 是否在线
+- 本地和远端是否用了兼容版本的 `sim/` 和 `train/`
+
+### 2. actor 可以跑，但没有收到新参数
+
+先看 learner 是否已经开始训练：
+
+- replay buffer 是否超过 `training_starts`
+- learner 是否报错退出
+- actor 是否真的连到了正确的 learner IP
+
+### 3. learner 报 `robot_controllers_mujoco` 找不到
+
+说明远端没有安装或找不到 `sim/`：
+
+```bash
+cd /root/workspace/hil_serl_mujoco/train
+./setup_env_autodl.sh
+```
+
+### 4. 想先本机自测，不走远端
+
+终端 1：
+
+```bash
+conda activate hil_serl_train
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --learner \
+  --demo_path /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos.pkl \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local
+```
+
+终端 2：
+
+```bash
+conda activate hil_serl_actor
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --ip localhost \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local_actor
+```
+
+## GitHub 拆仓与 submodule 计划
+
+如果你后面要把父仓拆成真正的多仓结构，推荐顺序：
+
+1. 先把 `sim/` 推成 `hil_serl_mujoco_sim`
+2. 再把 `train/` 推成 `hil_serl_mujoco_train`
+3. 最后回到父仓，把这两个目录替换成真实 submodule
+
+示意结构：
+
+```text
+hil_serl_mujoco                 # 父仓
+├── sim/                        # submodule -> hil_serl_mujoco_sim
+└── train/                      # submodule -> hil_serl_mujoco_train
+```
