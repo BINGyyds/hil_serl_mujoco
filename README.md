@@ -1,14 +1,11 @@
 # hil_serl_mujoco
 
-当前主线已经收敛为一条明确流程：
+`hil_serl_mujoco` 是一个面向 MuJoCo 仿真插入任务的 Human-in-the-Loop 强化学习工作区。当前主线已经收敛为单一任务和单一部署流程：
 
-1. 本地 `sim/` 跑 MuJoCo、`panda_nohand_velocity.xml`、SpaceMouse 和 demo 录制
-2. 先录一小批 insertion demos，作为 learner 的初始 `demo_buffer`
-3. 远端 `train/` 跑 learner
-4. 本地 `train/` 跑 actor，连接远端 learner
-5. 在线训练时继续用 SpaceMouse 做 intervention
-
-这份 README 现在是父仓唯一保留的顶层集成文档。旧的 `INTEGRATION_PLAN.md` 和 `MUJOCO_INSERTION_DEPLOYMENT.md` 已收敛到这里。
+- 任务：Franka Panda peg-in-hole insertion
+- 仿真控制基线：`panda_nohand_velocity.xml`
+- 数据策略：少量人工 demo 预热 + 在线 HIL-RLPD
+- 部署拓扑：本地 actor + 远端 learner
 
 ## 仓库结构
 
@@ -20,205 +17,157 @@ hil_serl_mujoco/
 ```
 
 - `sim/`
-  - 本地 MuJoCo 仿真、Franka Panda MJCF、SpaceMouse、demo 录制、本地控制调试
+  - MuJoCo 场景与 MJCF 模型
+  - `robot_controllers_mujoco` Python 包
+  - SpaceMouse 接入、本地控制器、demo 录制
 - `train/`
-  - `serl_launcher`、`train_rlpd_mujoco.py`、actor / learner、buffer、checkpoint
+  - `serl_launcher`
+  - `scripts/train_rlpd_mujoco.py`
+  - actor / learner 分布式训练
+  - replay buffer、demo buffer、checkpoint
 
-## 当前主线
+## 当前工作流
 
-当前主线任务为：
+当前推荐工作流如下：
 
-- `MuJoCo insertion`
-- `state-based HIL-RLPD`
-- 本地 actor + 远端 learner
+1. 在本地 `sim/` 中验证 insertion 环境与 SpaceMouse 控制链。
+2. 录制一批成功的 insertion demos，作为 learner 的初始 `demo_buffer`。
+3. 在远端服务器启动 learner。
+4. 在本地启动 actor，连接远端 learner。
+5. 在线训练期间继续使用 SpaceMouse 进行 intervention。
 
-需要固定的一条约束是：
+这个流程对应的是“demo-prefill + online HIL-RLPD”，不是“先完整做一轮离线 BC，再切换到 RL”。
 
-- 现在以及后续所有涉及 SpaceMouse 控制的 MuJoCo 场景，都以 `panda_nohand_velocity.xml` 为基准
+## 关键约束
 
-## 运行拓扑
+当前主线有一条固定约束：
 
-推荐拓扑：
+- 现在以及后续所有涉及 SpaceMouse 控制的 MuJoCo 场景，都以 `panda_nohand_velocity.xml` 为基准。
+
+这条约束同时适用于：
+
+- `sim/robot_controller`
+- `sim/scripts/record_demos_mujoco.py`
+- `sim/robot_controllers_mujoco/envs/FrankaInsertionEnv`
+
+## 推荐部署拓扑
+
+推荐使用“本地操作机 + 远端训练服务器”的双机部署：
 
 - 本地机器
-  - `sim/`
-  - `train/`
-  - SpaceMouse
-  - MuJoCo viewer
-  - 运行 `actor`
+  - 安装 `sim/`
+  - 安装 `train/` 的 actor 环境
+  - 连接 SpaceMouse
+  - 打开 MuJoCo viewer
+  - 运行 actor
 - 远端服务器
-  - `sim/`
-  - `train/`
-  - GPU
-  - 运行 `learner`
+  - 安装 `sim/`
+  - 安装 `train/` 的 learner 环境
+  - 使用 GPU
+  - 运行 learner
 
-当前通信端口来自 [`launcher.py`](/home/lrb/Workspace/hil_serl_mujoco/train/serl_launcher/utils/launcher.py#L301)：
+当前 actor / learner 通信配置来自 [`launcher.py`](/home/lrb/Workspace/hil_serl_mujoco/train/serl_launcher/utils/launcher.py)：
 
 - trainer port: `5588`
 - broadcast port: `5589`
 
 推荐网络方式：
 
-- 首选：Tailscale / Zerotier / 内网 VPN
+- 首选：Tailscale、Zerotier 或其他内网 VPN
 - 备选：可直连的公网 IP
-- 不建议额外改代码做新 RPC
 
-## 本地机器准备
+## 环境准备
 
-本地机器建议准备两个 Conda 环境：
+### 本地 sim 环境
 
-- `sim_env`
-  - 跑 MuJoCo 仿真
-  - 录 demos
-  - 调试 `robot_controller`
-- `hil_serl_actor`
-  - 跑 `train/scripts/train_rlpd_mujoco.py --actor`
-
-### 1. 安装 sim 环境
+macOS：
 
 ```bash
 cd /home/lrb/Workspace/hil_serl_mujoco/sim
 ./setup_env_mac.sh
+conda activate sim_env
 ```
 
-或 Ubuntu：
+Ubuntu：
 
 ```bash
 cd /home/lrb/Workspace/hil_serl_mujoco/sim
 ./setup_env_ubuntu.sh
-```
-
-安装完成后：
-
-```bash
 conda activate sim_env
-python -c "from robot_controllers_mujoco.configs.insertion_config import make_insertion_config; from robot_controllers_mujoco.envs.franka_insertion_env import FrankaInsertionEnv; env = FrankaInsertionEnv(config=make_insertion_config()); env.reset(); env.close(); print('sim insertion env ok')"
 ```
 
-### 2. 安装本地 actor 环境
+### 本地 actor 环境
+
+macOS：
 
 ```bash
 cd /home/lrb/Workspace/hil_serl_mujoco/train
 ./setup_env_actor_mac.sh
+conda activate hil_serl_actor
 ```
 
-如果本地 actor 机器是 Ubuntu：
+Ubuntu：
 
 ```bash
 cd /home/lrb/Workspace/hil_serl_mujoco/train
 ./setup_env_actor_ubuntu.sh
-```
-
-安装完成后：
-
-```bash
 conda activate hil_serl_actor
-python -c "import jax; print(jax.devices())"
 ```
 
-## 远端服务器准备
-
-远端服务器也需要同时放 `sim/` 和 `train/`，因为 `train` 直接依赖 `robot_controllers_mujoco`。
-
-建议目录：
-
-```text
-/root/workspace/hil_serl_mujoco/
-├── sim/
-└── train/
-```
-
-安装远端 learner 环境：
+### 远端 learner 环境
 
 ```bash
 cd /root/workspace/hil_serl_mujoco/train
 ./setup_env_autodl.sh
-```
-
-安装完成后：
-
-```bash
 conda activate hil_serl_train
-python -c "import jax; print(jax.devices())"
 ```
 
-如果这里看不到 GPU，先不要启动 learner。
+远端 learner 环境当前固定为：
 
-## 网络连通性检查
+- Python 3.11
+- JAX / JAXLIB / CUDA plugin `0.6.2`
+- `tensorflow-probability==0.25.0`
+- `distrax==0.1.5`
+- `flax==0.10.7`
+- `optax==0.2.8`
 
-假设你使用 Tailscale，先拿到远端服务器 VPN IP，例如：
+`hil_serl_train` 默认采用 JAX bundled CUDA/cuDNN，并在激活环境时自动过滤外部 `/usr/local/cuda*` 路径，避免系统 toolkit 与 learner 环境发生动态库冲突。
 
-```text
-100.101.102.103
-```
+## 端到端启动顺序
 
-本地先测试：
+### 1. 录制 insertion demos
+
+在本地 `sim_env` 中执行：
 
 ```bash
-ping 100.101.102.103
-```
-
-如果是公网或云服务器安全组，还需要开放：
-
-- `5588/tcp`
-- `5589/tcp`
-
-## 先录 insertion demos
-
-这一步只在本地 `sim_env` 里完成，不需要 learner 在线。
-
-```bash
-conda activate sim_env
 cd /home/lrb/Workspace/hil_serl_mujoco/sim
+conda activate sim_env
 
 python scripts/record_demos_mujoco.py \
   --output demo_data/insertion_demos.pkl \
   --num_demos 25
 ```
 
-按钮语义：
-
-- `SpaceMouse 6D`：控制 tool tip
-- `右键`：保存当前成功轨迹
-- `左键`：丢弃当前轨迹并 reset
-
-建议第一轮先录：
+建议初始录制规模：
 
 - 20 到 50 条成功轨迹
 - 每条都从预对齐初始位姿开始
-- 失败轨迹不要放进初始 `demo_buffer`
+- 初始 `demo_buffer` 中只保留成功轨迹
 
-如果你想看录制过程：
-
-```bash
-python scripts/record_demos_mujoco.py \
-  --output demo_data/insertion_demos.pkl \
-  --num_demos 25 \
-  --render-human \
-  --realtime
-```
-
-## 把 demos 传到远端
-
-如果 learner 在远端，把 `pkl` 拷过去：
+### 2. 将 demo 文件传到远端
 
 ```bash
+ssh user@100.101.102.103 "mkdir -p /root/workspace/hil_serl_mujoco/train/demo_data"
+
 scp /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos.pkl \
   user@100.101.102.103:/root/workspace/hil_serl_mujoco/train/demo_data/
 ```
 
-如果远端 `demo_data/` 不存在，先创建：
+### 3. 启动远端 learner
 
 ```bash
-ssh user@100.101.102.103 "mkdir -p /root/workspace/hil_serl_mujoco/train/demo_data"
-```
-
-## 启动远端 learner
-
-```bash
-conda activate hil_serl_train
 cd /root/workspace/hil_serl_mujoco/train
-
+conda activate hil_serl_train
 mkdir -p output/mujoco_insertion
 
 python scripts/train_rlpd_mujoco.py \
@@ -228,16 +177,16 @@ python scripts/train_rlpd_mujoco.py \
   --checkpoint_path /root/workspace/hil_serl_mujoco/train/output/mujoco_insertion
 ```
 
-启动后应看到类似信息：
+正常情况下，learner 应打印：
 
 - `demo buffer size: ...`
 - `starting learner loop`
 
-## 启动本地 actor
+### 4. 启动本地 actor
 
 ```bash
-conda activate hil_serl_actor
 cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_actor
 
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
@@ -246,76 +195,44 @@ python scripts/train_rlpd_mujoco.py \
   --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor
 ```
 
-说明：
+actor 启动后会：
 
-- `--ip` 写远端 learner 地址
-- 本地 actor 会打开 MuJoCo viewer
-- SpaceMouse intervention 通过 [`wrappers.py`](/home/lrb/Workspace/hil_serl_mujoco/sim/robot_controllers_mujoco/envs/wrappers.py#L15) 接入
-- learner 会把最新参数回推给 actor
+- 打开 MuJoCo 环境
+- 从 learner 接收最新策略参数
+- 持续向 replay buffer 写入在线 rollout
+- 在有人机干预时额外写入 intervention 数据
 
-## 运行时数据流
+### 5. 数据流说明
 
 - `demo_buffer`
   - learner 启动时由 `--demo_path` 预热
-  - 在线 intervention 时继续追加高质量片段
+  - 后续可继续写入高质量 intervention 数据
 - `replay_buffer`
-  - actor 的全量在线 rollout 数据
+  - 由 actor 的在线交互持续填充
 
-当前主线是：
+learner 会先等待 `replay_buffer` 达到 `training_starts`，然后才开始正式更新。
 
-1. 少量 demo 预热
-2. 在线 HIL-RLPD 持续训练
+## 快速自测
 
-不是先单独做完整 BC，再切到 RL。
-
-## 推荐操作顺序
-
-第一次完整跑通时，建议严格按这个顺序：
-
-1. 本地确认 insertion env 能 reset
-2. 本地录 `25` 条 insertion demos
-3. 把 demo `pkl` 传到远端
-4. 远端启动 learner
-5. 确认 learner 打印 `demo buffer size`
-6. 本地启动 actor，连接远端 IP
-7. 先观察几轮纯策略行为
-8. 再用 SpaceMouse 做 intervention
-
-## 常见问题
-
-### 1. learner 启动了，但 actor 连不上
-
-先排查：
-
-- 远端 IP 是否正确
-- `5588/5589` 是否开放
-- Tailscale 是否在线
-- 本地和远端是否用了兼容版本的 `sim/` 和 `train/`
-
-### 2. actor 可以跑，但没有收到新参数
-
-先看 learner 是否已经开始训练：
-
-- replay buffer 是否超过 `training_starts`
-- learner 是否报错退出
-- actor 是否真的连到了正确的 learner IP
-
-### 3. learner 报 `robot_controllers_mujoco` 找不到
-
-说明远端没有安装或找不到 `sim/`：
+### 本机仅验证 learner
 
 ```bash
-cd /root/workspace/hil_serl_mujoco/train
-./setup_env_autodl.sh
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_train
+
+python -c "import jax; print(jax.devices())"
+python -c "import jax, jax.numpy as jnp; x=jnp.ones((2048,2048), dtype=jnp.float32); y=(x@x).block_until_ready(); print(jax.devices(), y[0,0])"
+python -c "import distrax; from tensorflow_probability.substrates import jax as tfp; print('ok')"
 ```
 
-### 4. 想先本机自测，不走远端
+### 单机联调
 
 终端 1：
 
 ```bash
-conda activate hil_serl_train
 cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_train
+
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --learner \
@@ -326,11 +243,40 @@ python scripts/train_rlpd_mujoco.py \
 终端 2：
 
 ```bash
-conda activate hil_serl_actor
 cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_actor
+
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip localhost \
   --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local_actor
 ```
+
+## 常见问题
+
+### learner 能启动，但一直停在 `Filling up replay buffer`
+
+这通常不是错误，而是 learner 正在等待 actor 将在线数据写入 `replay_buffer`。保持 learner 运行，再启动 actor 即可。
+
+### learner 提示找不到 `robot_controllers_mujoco`
+
+说明 learner 机器上的 `sim/` 尚未正确安装。请重新执行：
+
+```bash
+cd /root/workspace/hil_serl_mujoco/train
+./setup_env_autodl.sh
+```
+
+### 服务器上担心驱动 / CUDA 版本冲突
+
+当前 learner 主线不依赖系统 `/usr/local/cuda*`，而是使用 JAX bundled CUDA/cuDNN。真正需要保证的是：
+
+- `nvidia-smi` 正常
+- NVIDIA GPU 可用
+- 激活 `hil_serl_train` 后，`LD_LIBRARY_PATH` 中不再残留 `/usr/local/cuda*`
+
+更详细的仿真侧和训练侧说明分别见：
+
+- [`sim/README.md`](/home/lrb/Workspace/hil_serl_mujoco/sim/README.md)
+- [`train/README.md`](/home/lrb/Workspace/hil_serl_mujoco/train/README.md)
