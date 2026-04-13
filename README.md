@@ -46,7 +46,7 @@ hil_serl_mujoco/
 
 这条约束同时适用于：
 
-- `sim/robot_controller`
+- `sim/scripts/debug/teleop_main.py`
 - `sim/scripts/record_demos_mujoco.py`
 - `sim/robot_controllers_mujoco/envs/FrankaInsertionEnv`
 
@@ -266,6 +266,16 @@ python scripts/train_rlpd_mujoco.py \
 ```bash
 cd /root/workspace/hil_serl_mujoco/train
 ./setup_env_autodl.sh
+```
+
+### 提示 `No module named 'jax'` 或 `scripts.experiments`
+
+先确认当前 shell 不在 `base` 环境，并且命令从 `train/` 根目录启动：
+
+```bash
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_train  # learner
+# 或 conda activate hil_serl_actor  # actor
 ```
 
 ### 服务器上担心驱动 / CUDA 版本冲突
