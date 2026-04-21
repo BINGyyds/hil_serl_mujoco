@@ -25,6 +25,7 @@ hil_serl_mujoco/
   - `scripts/train_rlpd_mujoco.py`
   - actor / learner 分布式训练
   - replay buffer、demo buffer、checkpoint
+  - 本地 metrics 曲线、checkpoint eval、MP4 导出
 
 ## 当前工作流
 
@@ -35,6 +36,7 @@ hil_serl_mujoco/
 3. 在远端服务器启动 learner。
 4. 在本地启动 actor，连接远端 learner。
 5. 在线训练期间继续使用 SpaceMouse 进行 intervention。
+6. 从 checkpoint 做纯策略 eval，并按需导出 MP4 结果视频。
 
 这个流程对应的是“demo-prefill + online HIL-RLPD”，不是“先完整做一轮离线 BC，再切换到 RL”。
 
@@ -148,6 +150,15 @@ python scripts/record_demos_mujoco.py \
   --num_demos 25
 ```
 
+默认录制配置已经和当前训练主线对齐：
+
+- 控制频率 `100 Hz`
+- `sim_timestep=0.001`
+- `n_substeps=10`
+- 默认关闭 reset 随机扰动，使录制起点与 debug teleop 的 home 位姿一致
+
+如需恢复训练用随机初始位姿，可额外加 `--random-reset`。
+
 建议初始录制规模：
 
 - 20 到 50 条成功轨迹
@@ -195,6 +206,8 @@ python scripts/train_rlpd_mujoco.py \
   --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor
 ```
 
+默认情况下 actor 会打开 MuJoCo viewer。需要无窗口采样时可加 `--norender_actor`；Ubuntu actor 环境还可选 `--actor_viewer meshcat` 启动轻量网页 viewer。
+
 actor 启动后会：
 
 - 打开 MuJoCo 环境
@@ -211,6 +224,64 @@ actor 启动后会：
   - 由 actor 的在线交互持续填充
 
 learner 会先等待 `replay_buffer` 达到 `training_starts`，然后才开始正式更新。
+
+### 6. 训练后纯策略评估与视频导出
+
+训练完成后，可以直接从 checkpoint 做纯策略 eval：
+
+```bash
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_actor
+
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local \
+  --eval_checkpoint_step -1 \
+  --eval_n_trajs 10
+```
+
+- `--eval_checkpoint_step -1` 表示加载 `checkpoint_path` 下最新 checkpoint
+- eval 会自动关闭 SpaceMouse intervention，只执行策略本身
+
+如需导出 MP4：
+
+```bash
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local \
+  --eval_checkpoint_step -1 \
+  --eval_n_trajs 3 \
+  --actor_viewer none \
+  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/output/eval/mujoco_insertion.mp4
+```
+
+当前 eval 视频默认使用世界系跟踪相机 `tool_follow_camera`。如需切回固定前视角，可手动加 `--eval_video_camera front`。
+
+### 7. 本地训练曲线
+
+learner 训练过程中会把 episode 指标持续写入：
+
+```text
+train/output/.../metrics/episode_metrics.csv
+```
+
+训练正常结束时会自动生成本地 PNG 曲线；也可以手动运行：
+
+```bash
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_train
+
+python scripts/plot_mujoco_metrics.py \
+  --metrics_dir /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local/metrics
+```
+
+默认输出：
+
+- `reward_curve.png`
+- `success_curve.png`
+- `error_curve.png`
 
 ## 快速自测
 
