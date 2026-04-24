@@ -82,14 +82,6 @@ hil_serl_mujoco/
 
 ### 本地 sim 环境
 
-macOS：
-
-```bash
-cd /home/lrb/Workspace/hil_serl_mujoco/sim
-./setup_env_mac.sh
-conda activate sim_env
-```
-
 Ubuntu：
 
 ```bash
@@ -99,14 +91,6 @@ conda activate sim_env
 ```
 
 ### 本地 actor 环境
-
-macOS：
-
-```bash
-cd /home/lrb/Workspace/hil_serl_mujoco/train
-./setup_env_actor_mac.sh
-conda activate hil_serl_actor
-```
 
 Ubuntu：
 
@@ -147,7 +131,9 @@ conda activate sim_env
 
 python scripts/record_demos_mujoco.py \
   --output demo_data/insertion_demos.pkl \
-  --num_demos 25
+  --num_demos 30 \
+  --render-human \
+  --realtime
 ```
 
 默认录制配置已经和当前训练主线对齐：
@@ -207,6 +193,7 @@ python scripts/train_rlpd_mujoco.py \
 ```
 
 默认情况下 actor 会打开 MuJoCo viewer。需要无窗口采样时可加 `--norender_actor`；Ubuntu actor 环境还可选 `--actor_viewer meshcat` 启动轻量网页 viewer。
+actor 默认会在达到自身 `max_steps` 后继续采样，直到 learner 回报训练完成，避免 learner 后半段只用冻结 replay buffer 继续训练；如需恢复旧的固定 actor 步数行为，可加 `--noactor_run_until_learner_done`。
 
 actor 启动后会：
 
@@ -321,8 +308,13 @@ python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip localhost \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local_actor
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local_actor \
+  --actor_viewer meshcat \
+  --actor_render_fps 30
 ```
+
+如果希望单机联调时使用 Pinocchio + MeshCat 作为 actor viewer，推荐在 actor 终端使用上面的 `--actor_viewer meshcat`。如需回退到原始 MuJoCo viewer，只需去掉这两个参数。
+actor 默认会跟随 learner 生命周期运行：即使 actor 先达到 `max_steps`，只要 learner 还没完成，它会继续采样并写入 replay buffer。
 
 ## 常见问题
 
