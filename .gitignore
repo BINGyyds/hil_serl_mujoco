@@ -23,3 +23,5 @@ train/output/
 train/wandb/
 train/demo_data/
 train/checkpoints/
+
+.codex
