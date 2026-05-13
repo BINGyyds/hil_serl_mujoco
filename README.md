@@ -6,6 +6,8 @@
 ![Training](https://img.shields.io/badge/Training-State--based%20SAC%20%2F%20RLPD-8A2BE2)
 ![Vision](https://img.shields.io/badge/Future-Visual%20RL%20Ready-FF8C00)
 
+<video controls src="train/backup/20260513/mujoco_insertion.mp4" title="Title"></video>
+
 `hil_serl_mujoco` 是一个围绕 **Franka Panda 插入任务**构建的 Human-in-the-Loop 强化学习工作区。  
 仓库围绕一条清晰的研发主线组织：
 
@@ -180,17 +182,34 @@ python scripts/record_demos_mujoco.py \
 ### 3. 启动 learner
 
 ```bash
-cd /root/workspace/hil_serl_mujoco/train
+cd /home/lrb/Workspace/hil_serl_mujoco/train
 conda activate hil_serl_train
 
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --learner \
-  --demo_path /root/workspace/hil_serl_mujoco/train/demo_data/insertion_demos.pkl \
-  --checkpoint_path /root/workspace/hil_serl_mujoco/train/output/mujoco_insertion
+  --demo_path /home/lrb/Workspace/hil_serl_mujoco/train/demo_data/insertion_demos.pkl \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion
 ```
 
 ### 4. 启动 actor
+
+**本地learner**
+
+```bash
+cd /home/lrb/Workspace/hil_serl_mujoco/train
+conda activate hil_serl_actor
+
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --ip localhost \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor \
+  --actor_viewer meshcat \
+  --actor_render_fps 20
+```
+
+**远程learner**
 
 ```bash
 cd /home/lrb/Workspace/hil_serl_mujoco/train
@@ -216,7 +235,7 @@ conda activate hil_serl_actor
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
   --eval_checkpoint_step -1 \
   --eval_n_trajs 10 \
   --eval_realtime_factor 1.0
@@ -235,7 +254,7 @@ python scripts/train_rlpd_mujoco.py \
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_local \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
   --eval_checkpoint_step -1 \
   --eval_n_trajs 10 \
   --actor_viewer none \
