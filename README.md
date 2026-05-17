@@ -2,11 +2,9 @@
 
 ![Platform](https://img.shields.io/badge/Platform-Ubuntu%20Only-E95420)
 ![Simulator](https://img.shields.io/badge/Simulator-MuJoCo-2F7CF6)
-![Control](https://img.shields.io/badge/Control-SpaceMouse%20%2B%20Velocity-3CB371)
+![Control](https://img.shields.io/badge/Control-SE(3)%20Torque%20%2B%20NRIC-3CB371)
 ![Training](https://img.shields.io/badge/Training-State--based%20SAC%20%2F%20RLPD-8A2BE2)
 ![Vision](https://img.shields.io/badge/Future-Visual%20RL%20Ready-FF8C00)
-
-<video controls src="train/backup/20260513/mujoco_insertion.mp4" title="Title"></video>
 
 `hil_serl_mujoco` 是一个围绕 **Franka Panda 插入任务**构建的 Human-in-the-Loop 强化学习工作区。  
 仓库围绕一条清晰的研发主线组织：
@@ -31,8 +29,8 @@
 | 维度 | 当前主线 |
 | --- | --- |
 | 任务 | Franka Panda peg-in-hole insertion |
-| 仿真模型 | `panda_nohand_velocity.xml` |
-| 控制方式 | SpaceMouse + task-space velocity control |
+| 仿真模型 | `insertion_scene_effort.xml` |
+| 控制方式 | SpaceMouse + `SE(3)` torque control + NRIC |
 | RL 观测 | state-only |
 | 训练范式 | demo prefill + online HIL-RLPD |
 | 评估产物 | success stats + MP4 + 本地 metrics 曲线 |
@@ -43,7 +41,7 @@
 
 - **单任务聚焦**：仓库围绕 insertion 主线组织，便于持续迭代与复现实验。
 - **调试到训练闭环完整**：从 teleop 调试、demo 录制到 actor/learner 训练和 checkpoint eval 已全部打通。
-- **控制语义统一**：debug teleop、demo recording、actor/eval 使用同一条 velocity 控制链。
+- **控制语义统一**：debug teleop、demo recording、actor/eval 使用同一条 torque 控制链。
 - **相机基础设施完整**：camera render、eval video 和视觉扩展路径已经就位，方便后续接入图像 observation。
 - **部署拓扑明确**：支持本地 actor + 远端 learner 的双机工作流。
 
@@ -88,7 +86,7 @@ hil_serl_mujoco/
 
 - MuJoCo 模型与资产
 - `FrankaInsertionEnv`
-- `panda_nohand_velocity.xml`
+- `insertion_scene_effort.xml`
 - SpaceMouse 接入
 - 本地 teleop 调试入口
 - insertion demo 录制
@@ -152,7 +150,7 @@ python scripts/debug/teleop_main.py \
 当前 debug 主线只保留：
 
 - SpaceMouse 输入
-- velocity 控制
+- `SE(3)` torque 控制 + NRIC
 - MuJoCo viewer
 - 末端相机窗口
 
@@ -165,6 +163,7 @@ conda activate sim_env
 python scripts/record_demos_mujoco.py \
   --output demo_data/insertion_demos.pkl \
   --num_demos 30 \
+  --random-reset \
   --render-human \
   --realtime \
   --show-cameras
@@ -175,7 +174,7 @@ python scripts/record_demos_mujoco.py \
 - `100 Hz` 控制频率
 - `sim_timestep = 0.001`
 - `n_substeps = 10`
-- 与 debug teleop 共用同一条 velocity 控制链
+- 与 debug teleop 共用同一条 torque 控制链
 
 `--show-cameras` 只用于观察，不会把图像写进 demo 数据集。
 
@@ -188,7 +187,7 @@ conda activate hil_serl_train
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --learner \
-  --demo_path /home/lrb/Workspace/hil_serl_mujoco/train/demo_data/insertion_demos.pkl \
+  --demo_path /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos.pkl \
   --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion
 ```
 
@@ -225,6 +224,17 @@ python scripts/train_rlpd_mujoco.py \
 ```
 
 当前 actor 默认会在达到自身 `max_steps` 后继续采样，直到 learner 回报训练完成，保持在线数据持续更新。
+
+## 控制主线
+
+当前 insertion 主线使用：
+
+- `insertion_scene_effort.xml`
+- `SE(3)` torque controller
+- NRIC 名义补偿
+- Pinocchio 作为控制器内部动力学与名义模型依赖
+
+高层 action 语义保持不变，仍然是 6D body-frame 目标命令。
 
 ### 5. 训练后评估
 
@@ -270,8 +280,8 @@ python scripts/train_rlpd_mujoco.py \
 ### 当前主线能力
 
 - `FrankaInsertionEnv`
-- `panda_nohand_velocity.xml`
-- SpaceMouse + velocity teleop
+- `insertion_scene_effort.xml`
+- SpaceMouse + `SE(3)` torque teleop
 - demo 录制
 - state-only SAC / RLPD actor + learner
 - checkpoint eval / MP4 / 本地 metrics
