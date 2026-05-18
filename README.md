@@ -161,8 +161,8 @@ cd /home/lrb/Workspace/hil_serl_mujoco/sim
 conda activate sim_env
 
 python scripts/record_demos_mujoco.py \
-  --output demo_data/insertion_demos.pkl \
-  --num_demos 30 \
+  --output demo_data/insertion_demos_v2.pkl \
+  --num_demos 20 \
   --random-reset \
   --render-human \
   --realtime \
@@ -178,6 +178,17 @@ python scripts/record_demos_mujoco.py \
 
 `--show-cameras` 只用于观察，不会把图像写进 demo 数据集。
 
+`Insertion v2` 之后，demo observation schema 已升级为 `(1, 18)`：
+
+- `pose_error_body`
+- `twist_body`
+- `wrench_control_body`
+
+因此必须：
+
+- 重新录制 demo
+- 使用新的 checkpoint 目录
+
 ### 3. 启动 learner
 
 ```bash
@@ -187,8 +198,8 @@ conda activate hil_serl_train
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --learner \
-  --demo_path /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos.pkl \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion
+  --demo_path /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos_v2.pkl \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2
 ```
 
 ### 4. 启动 actor
@@ -203,10 +214,17 @@ python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip localhost \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2_actor \
   --actor_viewer meshcat \
   --actor_render_fps 20
 ```
+
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --ip localhost \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2_actor \
+  --actor_viewer none
 
 **远程learner**
 
@@ -218,7 +236,7 @@ python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip 100.101.102.103 \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2_actor \
   --actor_viewer meshcat \
   --actor_render_fps 20
 ```
@@ -251,6 +269,15 @@ python scripts/train_rlpd_mujoco.py \
   --eval_realtime_factor 1.0
 ```
 
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
+  --eval_checkpoint_step -1 \
+  --eval_n_trajs 20 \
+  --eval_sample_task_case \
+  --actor_viewer none
+
 这里：
 
 - `success_sim_time` 表示 MuJoCo 物理仿真时间
@@ -264,11 +291,11 @@ python scripts/train_rlpd_mujoco.py \
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2 \
   --eval_checkpoint_step -1 \
   --eval_n_trajs 10 \
   --actor_viewer none \
-  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/output/eval/mujoco_insertion.mp4
+  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/output/eval/mujoco_insertion_v2.mp4
 ```
 
 当前会把所有 eval episode 顺序拼接到一个总视频中。默认 eval 相机是 `tool_follow_camera`，也可以手动切到 `front` 或 wrist 相机。
