@@ -161,7 +161,7 @@ cd /home/lrb/Workspace/hil_serl_mujoco/sim
 conda activate sim_env
 
 python scripts/record_demos_mujoco.py \
-  --output demo_data/insertion_demos_v2.pkl \
+  --output demo_data/insertion_demos.pkl \
   --num_demos 20 \
   --random-reset \
   --render-human \
@@ -178,13 +178,15 @@ python scripts/record_demos_mujoco.py \
 
 `--show-cameras` 只用于观察，不会把图像写进 demo 数据集。
 
-`Insertion v2` 之后，demo observation schema 已升级为 `(1, 18)`：
+当前推荐的 insertion observation schema 是 `(1, 18)`：
 
 - `pose_error_body`
 - `twist_body`
 - `wrench_control_body`
 
-因此必须：
+这是默认的 `--proprio_preset wrench`。如果显式使用 `--proprio_preset wrench_joint`，会额外加入 `q_pos/q_vel`，policy 输入变成 `(1, 32)`；该分支目前仅作为诊断实验保留。
+
+只要 observation preset 改变，就必须：
 
 - 重新录制 demo
 - 使用新的 checkpoint 目录
@@ -198,8 +200,8 @@ conda activate hil_serl_train
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --learner \
-  --demo_path /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos_v2.pkl \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2
+  --demo_path /home/lrb/Workspace/hil_serl_mujoco/sim/demo_data/insertion_demos.pkl \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion
 ```
 
 ### 4. 启动 actor
@@ -214,17 +216,21 @@ python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip localhost \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2_actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
   --actor_viewer meshcat \
   --actor_render_fps 20
 ```
 
+无窗口采样：
+
+```bash
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip localhost \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2_actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
   --actor_viewer none
+```
 
 **远程learner**
 
@@ -236,7 +242,7 @@ python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
   --ip 100.101.102.103 \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2_actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_actor \
   --actor_viewer meshcat \
   --actor_render_fps 20
 ```
@@ -269,6 +275,9 @@ python scripts/train_rlpd_mujoco.py \
   --eval_realtime_factor 1.0
 ```
 
+task-case 快速评估：
+
+```bash
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
@@ -277,6 +286,7 @@ python scripts/train_rlpd_mujoco.py \
   --eval_n_trajs 20 \
   --eval_sample_task_case \
   --actor_viewer none
+```
 
 这里：
 
@@ -291,14 +301,62 @@ python scripts/train_rlpd_mujoco.py \
 python scripts/train_rlpd_mujoco.py \
   --exp_name mujoco_insertion \
   --actor \
-  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion_v2 \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/output/mujoco_insertion \
   --eval_checkpoint_step -1 \
   --eval_n_trajs 10 \
   --actor_viewer none \
-  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/output/eval/mujoco_insertion_v2.mp4
+  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/output/eval/mujoco_insertion.mp4
 ```
 
 当前会把所有 eval episode 顺序拼接到一个总视频中。默认 eval 相机是 `tool_follow_camera`，也可以手动切到 `front` 或 wrist 相机。
+
+### 7. Task-case 泛化评估
+
+当前 task-case eval 的默认语义是：
+
+- hole/socket 位姿按 `task_case` 改变
+- `goal_tip` 跟随 socket 正确改变，并保持默认工具-孔姿态偏置
+- reset/preinsert 起点固定在默认 preinsert anchor，不跟着 hole 移动
+
+也就是说，policy 需要从默认 peg 初始位姿主动对齐新 hole。日志中应看到：
+
+```text
+reset_anchor=fixed
+```
+
+推荐的 wide task-case 视频评估：
+
+```bash
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/backup/20260517 \
+  --eval_checkpoint_step -1 \
+  --eval_n_trajs 20 \
+  --eval_sample_task_case \
+  --eval_task_case_range_preset wide \
+  --eval_zero_reset_perturbation \
+  --actor_viewer none \
+  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/backup/mujoco_insertion_3.mp4
+```
+
+如果需要做边界测试，可以扩大 task-case 采样范围，例如 XY `±20mm`、yaw `±0.4rad`：
+
+```bash
+python scripts/train_rlpd_mujoco.py \
+  --exp_name mujoco_insertion \
+  --actor \
+  --checkpoint_path /home/lrb/Workspace/hil_serl_mujoco/train/backup/20260517 \
+  --eval_checkpoint_step -1 \
+  --eval_n_trajs 20 \
+  --eval_sample_task_case \
+  --eval_task_case_range_preset wide \
+  --eval_task_case_xy_range_override 0.02 \
+  --eval_task_case_yaw_range_override 0.4 \
+  --eval_zero_reset_perturbation \
+  --actor_viewer none \
+  --eval_video_path /home/lrb/Workspace/hil_serl_mujoco/train/backup/mujoco_insertion_wide_xy20mm_yaw0p4.mp4
+```
 
 ---
 
